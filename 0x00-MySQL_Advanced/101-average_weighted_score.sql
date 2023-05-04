@@ -1,28 +1,35 @@
-DELIMITER $$
+-- Creates a stored procedure ComputeAverageWeightedScoreForUsers that
+-- computes and store the average weighted score for all students.
 DROP PROCEDURE IF EXISTS ComputeAverageWeightedScoreForUsers;
+DELIMITER $$
 CREATE PROCEDURE ComputeAverageWeightedScoreForUsers ()
 BEGIN
-    DECLARE average_weighted FLOAT;
-    DECLARE i INT DEFAULT 0;
+    ALTER TABLE users ADD total_weighted_score INT NOT NULL;
+    ALTER TABLE users ADD total_weight INT NOT NULL;
 
-    WHILE i < (SELECT COUNT(*) FROM users) DO
-        SET @user_id = (SELECT id FROM users ORDER BY id ASC LIMIT 1 OFFSET i);
-        SET @score = (SELECT score FROM corrections
-            WHERE user_id = @user_id LIMIT 1);
-        SET @weight = (SELECT weight FROM projects
-            JOIN corrections ON corrections.project_id = projects.id
-            WHERE user_id = @user_id LIMIT 1);
+    UPDATE users
+        SET total_weighted_score = (
+            SELECT SUM(corrections.score * projects.weight)
+            FROM corrections
+                INNER JOIN projects
+                    ON corrections.project_id = projects.id
+            WHERE corrections.user_id = users.id
+            );
 
-        IF @score IS NOT NULL AND @weight IS NOT NULL THEN
-            SET average_weighted = (SELECT SUM(score * weight) FROM corrections
-                JOIN projects ON corrections.project_id = projects.id
-                WHERE corrections.user_id = @user_id) / (SELECT SUM(weight) FROM projects
-                JOIN corrections ON corrections.project_id = projects.id
-                WHERE corrections.user_id = @user_id);
-            UPDATE users SET average_weighted_score = average_weighted WHERE id = @user_id;
-        END IF;
+    UPDATE users
+        SET total_weight = (
+            SELECT SUM(projects.weight)
+                FROM corrections
+                    INNER JOIN projects
+                        ON corrections.project_id = projects.id
+                WHERE corrections.user_id = users.id
+            );
 
-        SET i = i + 1;
-    END WHILE;
-END$$
+    UPDATE users
+        SET users.average_score = IF(users.total_weight = 0, 0, users.total_weighted_score / users.total_weight);
+    ALTER TABLE users
+        DROP COLUMN total_weighted_score;
+    ALTER TABLE users
+        DROP COLUMN total_weight;
+END $$
 DELIMITER ;
